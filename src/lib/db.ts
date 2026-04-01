@@ -6,23 +6,60 @@ import { ChatState, Conversation, Memory, Message, User } from '@/types/memory';
 let client: Client | null = null;
 let initialized = false;
 
-function getDatabaseUrl(): string {
-  const configuredUrl = process.env.TURSO_DATABASE_URL;
+function isServerlessReadonlyRuntime(env: NodeJS.ProcessEnv): boolean {
+  return env.VERCEL === '1' || env.AWS_LAMBDA_FUNCTION_NAME !== undefined;
+}
+
+function isRemoteLibsqlUrl(url: string): boolean {
+  return /^libsql:\/\//.test(url) || /^https:\/\//.test(url) || /^wss:\/\//.test(url);
+}
+
+export function resolveDatabaseConfig(env: NodeJS.ProcessEnv = process.env): {
+  url: string;
+  authToken?: string;
+} {
+  const configuredUrl = env.TURSO_DATABASE_URL;
+  const authToken = env.TURSO_AUTH_TOKEN;
+
   if (configuredUrl) {
-    return configuredUrl;
+    if (isRemoteLibsqlUrl(configuredUrl) && !authToken) {
+      throw new Error(
+        'Remote Turso/libSQL connection requires TURSO_AUTH_TOKEN.'
+      );
+    }
+
+    return {
+      url: configuredUrl,
+      authToken: authToken || undefined,
+    };
+  }
+
+  if (isServerlessReadonlyRuntime(env)) {
+    throw new Error(
+      'Vercel deployment requires a remote database. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.'
+    );
   }
 
   const dataDir = path.join(process.cwd(), '.data');
   fs.mkdirSync(dataDir, { recursive: true });
   const dbPath = path.join(dataDir, 'dialogue.db').replace(/\\/g, '/');
-  return `file:${dbPath}`;
+
+  return {
+    url: `file:${dbPath}`,
+    authToken: undefined,
+  };
+}
+
+export function resolveDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return resolveDatabaseConfig(env).url;
 }
 
 function getClient(): Client {
   if (!client) {
+    const { url, authToken } = resolveDatabaseConfig();
     client = createClient({
-      url: getDatabaseUrl(),
-      authToken: process.env.TURSO_AUTH_TOKEN,
+      url,
+      authToken,
     });
   }
 

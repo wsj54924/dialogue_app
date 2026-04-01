@@ -5,6 +5,7 @@ import {
   resolveMemoryWrite,
 } from './memory';
 import { Memory } from '@/types/memory';
+import { resolveDatabaseConfig, resolveDatabaseUrl } from './db';
 
 const TEST_USER_ID = 'test-user-001';
 
@@ -105,5 +106,23 @@ describe('memory system upgrade', () => {
     expect(superseded?.status).toBe('superseded');
     expect(writePlan.primaryMemory.status).toBe('active');
     expect(writePlan.primaryMemory.supersedes).toContain(oldMemory.id);
+  });
+});
+
+describe('database deployment behavior', () => {
+  test('throws a clear error on vercel when no remote database is configured', () => {
+    expect(() =>
+      resolveDatabaseUrl({
+        VERCEL: '1',
+      } as unknown as NodeJS.ProcessEnv)
+    ).toThrow(/TURSO_DATABASE_URL/);
+  });
+
+  test('throws a clear error when a remote turso url is set without auth token', () => {
+    expect(() =>
+      resolveDatabaseConfig({
+        TURSO_DATABASE_URL: 'libsql://example-org.turso.io',
+      } as unknown as NodeJS.ProcessEnv)
+    ).toThrow(/TURSO_AUTH_TOKEN/);
   });
 });
